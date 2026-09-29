@@ -9,6 +9,7 @@ A small desktop app for macOS and Windows that turns an OpenDocument text file (
   - **HTML sections**: just the `<section>` markup, copied to the clipboard or saved, for pasting into an existing deck.
   - **Complete presentation**: one `.html` file that works on its own, with these options: theme (all 14 reveal.js themes), base font size, heading size, uppercase headings, left or centred text, transition, slide numbers, progress bar, controls, vertical centring, scrollable long slides, scroll view, and custom CSS. reveal.js is either **embedded** (the file works offline) or loaded from a **CDN** (much smaller file).
 - **Images and formulas are included.** See [docs/images.md](docs/images.md) for the feasibility study and the list of what is supported.
+- **Optional image slides.** Each image, with its caption, can go on its own slide right after the slide it came from, scaled to fill the slide.
 - Also converted:
   - lists (nested, and numbered or bulleted);
   - tables, including header rows and merged cells;
@@ -18,6 +19,7 @@ A small desktop app for macOS and Windows that turns an OpenDocument text file (
   - *Preformatted Text* → `<pre><code>`;
   - *Quotations* → `<blockquote>`;
   - *Title* / *Subtitle* → a title slide.
+- **Optional bullet-by-bullet reveal.** List items can be turned into reveal.js fragments, either top-level items only or nested items too, with a choice of effect (fade in, slide up, highlight current, …).
 - **Optional vertical slides.** Lower-level headings can be nested under their top-level heading as reveal.js vertical stacks.
 
 ## Using it

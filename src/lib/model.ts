@@ -19,7 +19,8 @@ export type Inline =
    */
   | { kind: 'span'; style: string | null; named: TextFormat; direct: TextFormat; children: Inline[] }
   | { kind: 'link'; href: string; children: Inline[] }
-  | { kind: 'image'; imageId: string; widthPx: number | null; heightPx: number | null; alt: string }
+  /** `caption` is set when the image sat in a captioned frame (image + caption text in a text box). */
+  | { kind: 'image'; imageId: string; widthPx: number | null; heightPx: number | null; alt: string; caption?: Inline[] }
   | { kind: 'math'; mathml: string }
   | { kind: 'note'; noteClass: 'footnote' | 'endnote'; blocks: Block[] };
 

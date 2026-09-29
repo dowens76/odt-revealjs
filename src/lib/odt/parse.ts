@@ -282,6 +282,15 @@ class OdtParser {
         if (out.length) out.push({ kind: 'break' });
         out.push(...b.inlines);
       }
+      // A single image plus text: keep the text as that image's caption.
+      const images = out.filter((i) => i.kind === 'image');
+      if (images.length === 1) {
+        const caption = out.filter((i) => i.kind !== 'image');
+        while (caption[0]?.kind === 'break') caption.shift();
+        while (caption[caption.length - 1]?.kind === 'break') caption.pop();
+        const image = images[0] as Extract<Inline, { kind: 'image' }>;
+        return [caption.length ? { ...image, caption } : image];
+      }
       return out;
     }
 

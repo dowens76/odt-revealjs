@@ -4,6 +4,18 @@ import { slugify } from './odt/parse';
 export type ParagraphAction = 'include' | 'exclude' | 'notes';
 export type TextAction = 'include' | 'plain' | 'exclude';
 export type FootnoteMode = 'notes' | 'slide' | 'drop';
+export type ListFragments = 'none' | 'top' | 'all';
+
+/** reveal.js fragment effects; '' is the default fade-in. */
+export const FRAGMENT_EFFECTS = [
+  ['', 'Fade in'],
+  ['fade-up', 'Slide up'],
+  ['fade-left', 'Slide from right'],
+  ['fade-in-then-semi-out', 'Fade in, then dim'],
+  ['highlight-current-blue', 'Highlight current'],
+  ['grow', 'Grow'],
+  ['zoom-in', 'Zoom in'],
+] as const;
 
 export interface ConversionSettings {
   /** Section id → included. Missing ids are included. */
@@ -20,6 +32,12 @@ export interface ConversionSettings {
   nesting: 'flat' | 'vertical';
   /** Add class="odt-<style-name>" to elements so ODT styles can be targeted with CSS. */
   styleClasses: boolean;
+  /** Move each image (with its caption) onto its own slide after the slide it came from. */
+  imageSlides: boolean;
+  /** Reveal list items one at a time: none, top-level items only, or nested items too. */
+  listFragments: ListFragments;
+  /** reveal.js fragment effect class, e.g. "fade-up"; '' for the default. */
+  fragmentEffect: string;
 }
 
 export const DEFAULT_SETTINGS: ConversionSettings = {
@@ -31,6 +49,9 @@ export const DEFAULT_SETTINGS: ConversionSettings = {
   footnotes: 'notes',
   nesting: 'flat',
   styleClasses: false,
+  imageSlides: false,
+  listFragments: 'none',
+  fragmentEffect: '',
 };
 
 export interface RenderOptions {
@@ -49,7 +70,7 @@ export function includedSections(doc: OdtDocument, settings: ConversionSettings)
 export function renderSections(doc: OdtDocument, settings: ConversionSettings, options: RenderOptions): string {
   const r = new Renderer(doc, settings, options);
   const sections = includedSections(doc, settings);
-  if (settings.nesting === 'flat') return sections.map((s) => r.section(s, '')).join('\n\n');
+  if (settings.nesting === 'flat') return sections.flatMap((s) => r.section(s)).join('\n\n');
 
   const headingLevels = sections.filter((s) => s.level > 0).map((s) => s.level);
   const top = headingLevels.length ? Math.min(...headingLevels) : 1;
@@ -59,15 +80,21 @@ export function renderSections(doc: OdtDocument, settings: ConversionSettings, o
     else groups[groups.length - 1].push(s);
   }
   return groups
-    .map((g) =>
-      g.length === 1 ? r.section(g[0], '') : `<section>\n${g.map((s) => r.section(s, '  ')).join('\n\n')}\n</section>`,
-    )
+    .map((g) => {
+      // Image slides can turn a single heading into several slides, which then also form a stack.
+      const slides = g.flatMap((s) => r.section(s));
+      return slides.length === 1
+        ? slides[0]
+        : `<section>\n${slides.map((x) => indentLines(x, '  ')).join('\n\n')}\n</section>`;
+    })
     .join('\n\n');
 }
 
 class Renderer {
   private notes: string[] = [];
   private footnotes: string[] = [];
+  private listDepth = 0;
+  private pendingImages: string[] = [];
 
   constructor(
     private doc: OdtDocument,
@@ -75,9 +102,11 @@ class Renderer {
     private options: RenderOptions,
   ) {}
 
-  section(s: Section, indent: string): string {
+  /** Render a document section: its slide, followed by one slide per image when images get their own slides. */
+  section(s: Section): string[] {
     this.notes = [];
     this.footnotes = [];
+    this.pendingImages = [];
     const parts: string[] = [];
     if (s.level > 0) {
       const tag = `h${Math.min(s.level, 6)}`;
@@ -90,8 +119,12 @@ class Renderer {
     if (this.notes.length) {
       parts.push(`<aside class="notes">\n${this.notes.map((n) => `  ${n}`).join('\n')}\n</aside>`);
     }
-    const body = parts.map((p) => indentLines(p, indent + '  ')).join('\n');
-    return `${indent}<section id="${esc(s.id)}">\n${body}\n${indent}</section>`;
+    const body = parts.map((p) => indentLines(p, '  ')).join('\n');
+    const slides = [`<section id="${esc(s.id)}">\n${body}\n</section>`];
+    this.pendingImages.forEach((figure, n) => {
+      slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide">\n${indentLines(figure, '  ')}\n</section>`);
+    });
+    return slides;
   }
 
   private cls(style: string | null): string {
@@ -140,15 +173,20 @@ class Renderer {
         return `<p${this.cls(b.style)}>${inner}</p>`;
       }
       case 'list': {
+        const f = this.settings.listFragments;
+        const fragment = f === 'all' || (f === 'top' && this.listDepth === 0);
+        const li = fragment ? `<li class="${['fragment', this.settings.fragmentEffect].filter(Boolean).join(' ')}">` : '<li>';
+        this.listDepth++;
         const items = b.items
           .map((item) => {
             const parts = this.blocks(item.blocks);
             if (!parts.length) return '';
             // A single paragraph renders inline inside the <li> for clean markup.
             const single = parts.length === 1 && /^<p>([\s\S]*)<\/p>$/.exec(parts[0]);
-            return single ? `<li>${single[1]}</li>` : `<li>\n${indentLines(parts.join('\n'), '  ')}\n</li>`;
+            return single ? `${li}${single[1]}</li>` : `${li}\n${indentLines(parts.join('\n'), '  ')}\n</li>`;
           })
           .filter(Boolean);
+        this.listDepth--;
         if (!items.length) return '';
         const tag = b.ordered ? 'ol' : 'ul';
         const start = b.ordered && b.start && b.start !== 1 ? ` start="${b.start}"` : '';
@@ -207,8 +245,15 @@ class Renderer {
         if (!asset?.supported) return '';
         const src = this.options.imageSrc(asset);
         if (!src) return '';
+        const caption = i.caption ? this.inlines(i.caption).trim() : '';
+        if (this.settings.imageSlides) {
+          // On its own slide the image is sized by CSS to fill the slide, not by its size in the document.
+          const img = `<img src="${esc(src)}" alt="${esc(i.alt)}">`;
+          this.pendingImages.push(caption ? `<figure>\n  ${img}\n  <figcaption>${caption}</figcaption>\n</figure>` : img);
+          return '';
+        }
         const style = i.widthPx ? ` style="width: ${i.widthPx}px"` : '';
-        return `<img src="${esc(src)}" alt="${esc(i.alt)}"${style}>`;
+        return `<img src="${esc(src)}" alt="${esc(i.alt)}"${style}>${caption ? `<br>${caption}` : ''}`;
       }
       case 'math':
         return i.mathml;

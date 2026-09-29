@@ -5,6 +5,7 @@ import { buildPresentation, THEMES, themeFontSize, TRANSITIONS, type Presentatio
 import {
   DEFAULT_SETTINGS,
   esc,
+  FRAGMENT_EFFECTS,
   includedSections,
   renderSections,
   type ConversionSettings,
@@ -33,6 +34,7 @@ const state = {
   currentSlideId: '',
   previewIndices: { h: 0, v: 0 },
   themeDefaultFont: null as number | null,
+  slideCount: 0,
 };
 
 const imageCache = new Map<string, string>();
@@ -125,6 +127,8 @@ async function updatePreview() {
   updateCounts();
   if (!state.doc) return;
   const html = sectionsHtml();
+  state.slideCount = (html.match(/<section id=/g) ?? []).length;
+  $('slide-count').textContent = `${state.slideCount} slides`;
   $('code').innerHTML = highlight(html);
   const opts = { ...presentationOptions(), revealSource: 'inline' as const };
   const assets = await loadRevealAssets(opts.theme);
@@ -209,7 +213,7 @@ function updateCounts() {
       doc.textStyles.filter((s) => state.settings.textStyles[s.name] && state.settings.textStyles[s.name] !== 'include').length
     : 0;
   $('tab-count-styles').textContent = excluded ? `${excluded} changed` : '';
-  $('slide-count').textContent = doc ? `${includedSections(doc, state.settings).length} slides` : '';
+  if (!doc) $('slide-count').textContent = '';
 }
 
 function renderTemplateSelect() {
@@ -358,8 +362,20 @@ function stylesPanel(): string {
         <span>Keep direct formatting<small>Bold, italic, underline etc. applied by hand rather than through a style.</small></span></label>
       <label class="check"><input type="checkbox" data-setting="images" ${s.images ? 'checked' : ''}>
         <span>Include images${doc ? ` (${imgs.length - unsupported} of ${imgs.length})` : ''}<small>Embedded in the HTML as data URIs.${unsupported ? ` ${unsupported} use a format browsers can’t display (see notes).` : ''}</small></span></label>
+      <label class="check" style="margin-left:22px"><input type="checkbox" data-setting="imageSlides" ${s.imageSlides ? 'checked' : ''} ${s.images ? '' : 'disabled'}>
+        <span>Put each image on its own slide<small>Right after the slide it came from, sized to fill the slide, with its caption.</small></span></label>
       <label class="check"><input type="checkbox" data-setting="styleClasses" ${s.styleClasses ? 'checked' : ''}>
         <span>Add style class names<small>e.g. <code>class="odt-quotations"</code>, so ODT styles can be targeted with custom CSS.</small></span></label>
+      <div class="row"><label>List items</label>
+        <select data-setting="listFragments">
+          ${opt('none', 'Show all at once', s.listFragments)}${opt('top', 'One at a time (top level)', s.listFragments)}${opt('all', 'One at a time (incl. nested)', s.listFragments)}
+        </select></div>
+      ${
+        s.listFragments !== 'none'
+          ? `<div class="row"><label>Fragment effect</label>
+        <select data-setting="fragmentEffect">${FRAGMENT_EFFECTS.map(([v, l]) => opt(v, l, s.fragmentEffect)).join('')}</select></div>`
+          : ''
+      }
       <div class="row"><label>Footnotes</label>
         <select data-setting="footnotes">
           ${opt('notes', 'Speaker notes', s.footnotes)}${opt('slide', 'Bottom of the slide', s.footnotes)}${opt('drop', 'Leave out', s.footnotes)}

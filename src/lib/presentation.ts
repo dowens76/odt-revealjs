@@ -158,6 +158,12 @@ function overrideCss(o: PresentationOptions): string {
   }
   css.push(
     '.reveal section img { max-width: 100%; max-height: 520px; height: auto; object-fit: contain; }',
+    '.reveal section.image-slide { text-align: center; }',
+    // Scale every image, small ones included, to fill the slide while keeping its aspect ratio.
+    '.reveal section.image-slide img { display: block; width: 100%; height: 560px; max-height: none; object-fit: contain; margin: 0 auto; }',
+    '.reveal section.image-slide figure img { height: 500px; }',
+    '.reveal section.image-slide figure { margin: 0; }',
+    '.reveal section.image-slide figcaption { font-size: 0.6em; opacity: 0.8; margin-top: 0.4em; }',
     '.reveal p.subtitle { font-size: 1.2em; opacity: 0.8; }',
     '.reveal ol.footnotes { display: block; font-size: 0.5em; margin-top: 1em; padding-top: 0.5em; border-top: 1px solid currentColor; opacity: 0.8; }',
     '.reveal sup.footnote-ref { font-size: 0.6em; }',

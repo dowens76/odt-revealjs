@@ -80,6 +80,25 @@ for (const file of ['sample.odt', 'sample.fodt']) {
       expect(render(doc, { paragraphStyles: { 'Speaker Notes': 'exclude' } })).not.toContain('smile');
     });
 
+    it('turns list items into fragments', () => {
+      const top = render(doc, { listFragments: 'top' });
+      expect(top).toMatch(/<ul>\s*<li class="fragment">\s*<p>Bullet one<\/p>\s*<ul>\s*<li>Nested<\/li>/);
+      expect(top).toContain('<li class="fragment">Second</li>');
+      const all = render(doc, { listFragments: 'all', fragmentEffect: 'fade-up' });
+      expect(all).toContain('<li class="fragment fade-up">Nested</li>');
+      expect(render(doc)).not.toContain('fragment');
+    });
+
+    it('can put images on their own slides', () => {
+      const html = render(doc, { imageSlides: true });
+      expect(html).toMatch(/<section id="a-picture">\n  <h2>A Picture<\/h2>\n<\/section>\n\n<section id="a-picture-image-1" class="image-slide">\n  <img src="data:image\/png;base64,[^"]+" alt="Red box">\n<\/section>/);
+      expect(render(doc, { imageSlides: true, images: false })).not.toContain('image-slide');
+      // In vertical mode the image slide joins its heading's stack.
+      const nested = render(doc, { imageSlides: true, nesting: 'vertical' });
+      expect(nested).toMatch(/<section>\n  <section id="introduction">[\s\S]*  <section id="a-picture-image-1" class="image-slide">[\s\S]*?<\/section>\n<\/section>\n\n<section id="maths">/);
+      expect(nested).toContain('<pre><code>let x = 1;\nlet y = &nbsp;&nbsp;2;</code></pre>');
+    });
+
     it('nests sub-headings as vertical slides', () => {
       const html = render(doc, { nesting: 'vertical' });
       expect(html).toMatch(/<section>\n  <section id="introduction">[\s\S]*<section id="a-picture">[\s\S]*?<\/section>\n<\/section>/);
@@ -130,6 +149,27 @@ describe('templates', () => {
     expect(applied.settings.sections).toMatchObject({ maths: false, introduction: true, 'a-picture': false });
     expect(applied.settings.paragraphStyles['Speaker Notes']).toBe('notes');
     expect(() => parseTemplate({ foo: 1 })).toThrow();
+  });
+});
+
+describe('captions', () => {
+  // LibreOffice stores a captioned image as an outer frame holding a text box with the image frame and the caption text.
+  const src = new TextDecoder().decode(fixture('sample.fodt'));
+  const start = src.indexOf('<draw:frame draw:style-name="fr1"');
+  const end = src.indexOf('</draw:frame>', start) + '</draw:frame>'.length;
+  const captioned = src.slice(0, start) +
+    `<draw:frame svg:width="4cm"><draw:text-box><text:p text:style-name="Caption">${src.slice(start, end)}<text:line-break/>Figure 1: A <text:span text:style-name="Emphasis">red</text:span> box</text:p></draw:text-box></draw:frame>` +
+    src.slice(end);
+  const doc = parseOdt(new TextEncoder().encode(captioned));
+
+  it('keeps the caption under an inline image', () => {
+    expect(render(doc)).toMatch(/<p><img [^>]+ style="width: 151px"><br>Figure 1: A <em>red<\/em> box<\/p>/);
+  });
+
+  it('moves image and caption together onto the image slide', () => {
+    const html = render(doc, { imageSlides: true });
+    expect(html).toMatch(/<section id="a-picture-image-1" class="image-slide">\n  <figure>\n    <img [^>]+>\n    <figcaption>Figure 1: A <em>red<\/em> box<\/figcaption>\n  <\/figure>\n<\/section>/);
+    expect(html).not.toMatch(/<section id="a-picture">[\s\S]*?Figure 1[\s\S]*?<\/section>\n\n<section id="a-picture-image-1"/);
   });
 });
 
