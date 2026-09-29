@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <!-- document -->
+  <path d="M220 230h250l80 80v380H220z" fill="#fff"/>
+  <path d="M470 230v80h80" fill="#c7d2fe"/>
+  <rect x="265" y="360" width="180" height="26" rx="13" fill="#6366f1"/>
+  <rect x="265" y="420" width="240" height="18" rx="9" fill="#c7d2fe"/>
+  <rect x="265" y="465" width="220" height="18" rx="9" fill="#c7d2fe"/>
+  <rect x="265" y="535" width="160" height="26" rx="13" fill="#6366f1"/>
+  <rect x="265" y="595" width="230" height="18" rx="9" fill="#c7d2fe"/>
+  <!-- arrow -->
+  <path d="M585 480h70v-40l70 70-70 70v-40h-70z" fill="#fff" opacity=".9"/>
+  <!-- slides -->
+  <rect x="640" y="600" width="210" height="150" rx="18" fill="#a5b4fc"/>
+  <rect x="610" y="640" width="210" height="150" rx="18" fill="#fff"/>
+  <rect x="640" y="680" width="100" height="18" rx="9" fill="#6366f1"/>
+  <rect x="640" y="720" width="140" height="12" rx="6" fill="#c7d2fe"/>
+  <rect x="640" y="745" width="120" height="12" rx="6" fill="#c7d2fe"/>
+</svg>

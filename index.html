@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ODT → Reveal.js</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand"><span class="brand-mark">◧</span> ODT → Reveal</div>
+      <button id="open-btn" class="btn">Open document…</button>
+      <div id="doc-info" class="doc-info"></div>
+      <div class="spacer"></div>
+      <label class="template-picker">
+        <span>Template</span>
+        <select id="template-select"></select>
+      </label>
+      <button id="template-save" class="btn" title="Save the current choices as a reusable template">Save template…</button>
+      <div class="menu-wrap">
+        <button id="template-menu-btn" class="btn icon" title="More template actions" aria-haspopup="menu">⋯</button>
+        <div id="template-menu" class="menu" role="menu" hidden>
+          <button data-menu="update" role="menuitem">Update selected template</button>
+          <button data-menu="rename" role="menuitem">Rename selected template…</button>
+          <button data-menu="delete" role="menuitem" class="danger">Delete selected template</button>
+          <hr />
+          <button data-menu="import" role="menuitem">Import template…</button>
+          <button data-menu="export" role="menuitem">Export selected template…</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <nav class="tabs" role="tablist">
+          <button role="tab" data-tab="sections" class="active">Sections <span id="tab-count-sections" class="count"></span></button>
+          <button role="tab" data-tab="styles">Styles <span id="tab-count-styles" class="count"></span></button>
+          <button role="tab" data-tab="output">Output</button>
+        </nav>
+        <div id="panel" class="panel"></div>
+        <footer class="actions">
+          <button id="copy-btn" class="btn" disabled>Copy HTML</button>
+          <button id="save-btn" class="btn primary" disabled>Save presentation…</button>
+        </footer>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-bar">
+          <div class="segmented" role="tablist" aria-label="View">
+            <button data-view="preview" class="active">Preview</button>
+            <button data-view="code">HTML</button>
+          </div>
+          <div id="slide-count" class="muted"></div>
+          <div class="spacer"></div>
+          <button id="warnings-btn" class="btn subtle warn" hidden></button>
+          <button id="fullscreen-btn" class="btn subtle" title="Open preview full screen">⤢</button>
+        </div>
+        <div id="warnings" class="warnings" hidden></div>
+        <div class="stage">
+          <iframe id="preview" title="Presentation preview" sandbox="allow-scripts allow-popups" allowfullscreen></iframe>
+          <pre id="code" class="code" hidden></pre>
+          <div id="empty" class="empty">
+            <div class="drop-card">
+              <div class="drop-icon">⇪</div>
+              <h2>Open an OpenDocument text file</h2>
+              <p>Drop an <code>.odt</code> or <code>.fodt</code> file here, or</p>
+              <button id="empty-open-btn" class="btn primary">Choose a document…</button>
+              <p class="muted small">Each heading becomes a slide. Pick sections and styles on the left, then save a complete reveal.js presentation or copy the HTML.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="drop-overlay" class="drop-overlay" hidden><div>Drop to open</div></div>
+
+    <dialog id="dialog" class="dialog">
+      <form method="dialog">
+        <h3 id="dialog-title"></h3>
+        <p id="dialog-message" class="muted"></p>
+        <input id="dialog-input" type="text" autocomplete="off" />
+        <menu>
+          <button value="cancel" class="btn" formnovalidate>Cancel</button>
+          <button id="dialog-ok" value="ok" class="btn primary">OK</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
