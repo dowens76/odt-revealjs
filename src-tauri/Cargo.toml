@@ -1,6 +1,6 @@
 [package]
 name = "odt-revealjs"
-version = "0.1.0"
+version = "0.1.1"
 description = "Convert OpenDocument text files to reveal.js presentations"
 authors = ["Daniel Owens"]
 license = "MIT"
