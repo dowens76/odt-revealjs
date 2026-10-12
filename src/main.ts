@@ -367,7 +367,7 @@ function stylesPanel(): string {
       <label class="check"><input type="checkbox" data-setting="styleClasses" ${s.styleClasses ? 'checked' : ''}>
         <span>Add style class names<small>e.g. <code>class="odt-quotations"</code>, so ODT styles can be targeted with custom CSS.</small></span></label>
       <label class="check"><input type="checkbox" data-setting="langAttributes" ${s.langAttributes ? 'checked' : ''}>
-        <span>Mark slide language<small>Adds <code>data-lang="vi"</code> to slides using a style with “VI” in its name, <code>data-lang="en"</code> to the others and <code>data-lang="both"</code> to image slides.</small></span></label>
+        <span>Mark slide language<small>Adds <code>data-lang="vi"</code> to slides using a style with “VI” in its name, <code>data-lang="en"</code> to the others and <code>data-lang="both"</code> to image slides and the title slide.</small></span></label>
       <div class="row"><label>List items</label>
         <select data-setting="listFragments">
           ${opt('none', 'Show all at once', s.listFragments)}${opt('top', 'One at a time (top level)', s.listFragments)}${opt('all', 'One at a time (incl. nested)', s.listFragments)}
@@ -448,6 +448,7 @@ function outputPanel(): string {
       ${check('center', 'Centre slides vertically')}
       ${check('scrollableSlides', 'Scroll long slides', 'Slides with more text than fits get a scrollbar instead of being cut off.')}
       ${check('scrollView', 'Scroll view', 'Show the whole deck as one scrolling page (good for reading on phones).')}
+      ${check('languagePicker', 'Language picker (English / Tiếng Việt)', 'Shows only the slides in the chosen language. Turning this on also turns on “Mark slide language” on the Styles tab. Open the file with <code>?lang=vi</code> to start in Vietnamese.')}
     </div>
     <div class="group">
       <h4 class="group-title">reveal.js files</h4>
@@ -525,6 +526,8 @@ panel.addEventListener('change', (e) => {
   } else if (d.pres) {
     const p = state.output.presentation as unknown as Record<string, unknown>;
     p[d.pres] = t.type === 'checkbox' ? t.checked : t.value;
+    // The picker filters on data-lang, which only exists when slides are marked with their language.
+    if (d.pres === 'languagePicker' && t.checked) state.settings.langAttributes = true;
     if (d.pres === 'customCss') return; // handled on input, no re-render (keeps the caret)
   } else return;
   renderPanel();

@@ -46,6 +46,11 @@ export interface PresentationOptions {
   /** "inline" embeds reveal.js so the file works offline; "cdn" keeps the file small. */
   revealSource: 'inline' | 'cdn';
   customCss: string;
+  /**
+   * Add an English / Tiếng Việt picker that shows only the slides whose data-lang matches
+   * (plus "both"). Needs the "Mark slide language" conversion setting to tag the slides.
+   */
+  languagePicker: boolean;
 }
 
 export const DEFAULT_PRESENTATION: PresentationOptions = {
@@ -64,7 +69,96 @@ export const DEFAULT_PRESENTATION: PresentationOptions = {
   scrollView: false,
   revealSource: 'inline',
   customCss: '',
+  languagePicker: false,
 };
+
+const LANGUAGE_PICKER_HTML = `<select id="lang-toggle" aria-label="Language">
+  <option value="en">English</option>
+  <option value="vi">Tiếng Việt</option>
+</select>`;
+
+/** Language filtering that must run before Reveal.initialize, so the deck never flashes the other language. */
+export const LANGUAGE_PICKER_PRE_INIT = `const container = document.querySelector('.reveal .slides');
+
+// Snapshot the original slide structure (including vertical stacks)
+const original = new Map();
+function snapshot(parent) {
+  const kids = Array.from(parent.children).filter(el => el.tagName === 'SECTION');
+  original.set(parent, kids);
+  kids.forEach(k => { if (k.querySelector(':scope > section')) snapshot(k); });
+}
+snapshot(container);
+
+function slideLang(section, inherited) {
+  return section.dataset.lang || inherited;
+}
+
+function applyLanguage(lang, parent = container, inherited = 'both') {
+  const keep = original.get(parent).filter(s => {
+    const l = slideLang(s, inherited);
+    return l === 'both' || l === lang;
+  });
+  parent.replaceChildren(...keep);
+  keep.forEach(s => {
+    if (original.has(s)) applyLanguage(lang, s, slideLang(s, inherited));
+  });
+  document.documentElement.lang = lang;  // helps fonts, hyphenation, screen readers
+}
+
+// Every slide (vertical-stack children included) in document order, with its language
+const leaves = [];
+(function collect(parent, inherited) {
+  original.get(parent).forEach(s => {
+    const l = slideLang(s, inherited);
+    if (original.has(s)) collect(s, l); else leaves.push({ el: s, lang: l });
+  });
+})(container, 'both');
+
+// The slide to show after switching: shared slides stay put; otherwise the slide at the same
+// position among the other language's slides (the 3rd English slide -> the 3rd Vietnamese one)
+function counterpart(slide, lang) {
+  const from = leaves.find(x => x.el === slide);
+  if (!from || from.lang === 'both') return slide;
+  const ordinal = leaves.filter(x => x.lang === from.lang).indexOf(from);
+  const candidates = leaves.filter(x => x.lang === lang);
+  return candidates.length ? candidates[Math.min(ordinal, candidates.length - 1)].el : null;
+}
+
+// Keep ?lang= and the slide address in the URL, so a reload or a shared link opens the same view
+function rememberLanguage(lang) {
+  try {
+    const url = new URL(location.href);
+    url.searchParams.set('lang', lang);
+    const slide = Reveal.getCurrentSlide();
+    if (Reveal.getConfig().hash && slide && slide.id) url.hash = '/' + slide.id;
+    history.replaceState(null, '', url);
+  } catch (err) {
+    // e.g. inside a sandboxed preview, where the address can't be changed
+  }
+}
+
+// Initial language: ?lang=vi in the URL, otherwise English
+const params = new URLSearchParams(location.search);
+const startLang = params.get('lang') === 'vi' ? 'vi' : 'en';
+const toggle = document.getElementById('lang-toggle');
+toggle.value = startLang;
+applyLanguage(startLang);   // filter before init, so there's no flash`;
+
+/** Language switching wired up after Reveal.initialize. */
+export const LANGUAGE_PICKER_POST_INIT = `toggle.addEventListener('change', e => {
+  const lang = e.target.value;
+  const target = counterpart(Reveal.getCurrentSlide(), lang);
+  applyLanguage(lang);
+  Reveal.sync();
+  if (target && target.isConnected) {
+    const { h, v } = Reveal.getIndices(target);
+    Reveal.slide(h, v);     // the matching slide in the other language
+  } else {
+    Reveal.slide(0, 0);
+  }
+  rememberLanguage(lang);
+  e.target.blur();          // give arrow keys back to reveal.js
+});`;
 
 export interface RevealAssets {
   revealCss: string;
@@ -129,10 +223,10 @@ ${overrideCss(opts)}
 ${sectionsHtml}
 </div>
 </div>
-${scripts.join('\n')}
+${opts.languagePicker ? `${LANGUAGE_PICKER_HTML}\n` : ''}${scripts.join('\n')}
 <script>
-Reveal.initialize(Object.assign(${JSON.stringify(config, null, 2)}, { plugins: [RevealNotes] }));
-${extras.script ?? ''}
+${opts.languagePicker ? `${LANGUAGE_PICKER_PRE_INIT}\n\n` : ''}Reveal.initialize(Object.assign(${JSON.stringify(config, null, 2)}, { plugins: [RevealNotes] }));
+${opts.languagePicker ? `\n${LANGUAGE_PICKER_POST_INIT}\n` : ''}${extras.script ?? ''}
 </script>
 </body>
 </html>
@@ -169,6 +263,14 @@ function overrideCss(o: PresentationOptions): string {
     '.reveal sup.footnote-ref { font-size: 0.6em; }',
     '.reveal table { font-size: 0.8em; }',
   );
+  if (o.languagePicker) {
+    css.push(
+      '#lang-toggle { position: fixed; top: 12px; right: 12px; z-index: 40; padding: 4px 8px; border-radius: 6px; border: 1px solid currentColor;' +
+        ' font: 16px var(--r-main-font, sans-serif); color: var(--r-main-color, #222); background: var(--r-background-color, #fff); opacity: 0.75; cursor: pointer; }',
+      '#lang-toggle:hover, #lang-toggle:focus { opacity: 1; }',
+      '@media print { #lang-toggle { display: none; } }',
+    );
+  }
   if (o.customCss.trim()) css.push('/* Custom CSS */', o.customCss.trim());
   return css.join('\n');
 }

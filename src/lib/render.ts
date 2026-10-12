@@ -40,7 +40,8 @@ export interface ConversionSettings {
   fragmentEffect: string;
   /**
    * Add data-lang to each slide: "vi" when its content uses a style whose name contains "VI",
-   * "en" otherwise, and "both" on image slides.
+   * "en" otherwise, and "both" on image slides and on the front matter (content before the
+   * first heading, usually the title slide).
    */
   langAttributes: boolean;
 }
@@ -132,7 +133,9 @@ class Renderer {
       parts.push(`<aside class="notes">\n${this.notes.map((n) => `  ${n}`).join('\n')}\n</aside>`);
     }
     const body = parts.map((p) => indentLines(p, '  ')).join('\n');
-    const slides = [`<section id="${esc(s.id)}"${this.lang(this.vi ? 'vi' : 'en')}>\n${body}\n</section>`];
+    // The front matter (title slide) is shared by both languages.
+    const lang = s.level === 0 ? 'both' : this.vi ? 'vi' : 'en';
+    const slides = [`<section id="${esc(s.id)}"${this.lang(lang)}>\n${body}\n</section>`];
     this.pendingImages.forEach((figure, n) => {
       slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide"${this.lang('both')}>\n${indentLines(figure, '  ')}\n</section>`);
     });

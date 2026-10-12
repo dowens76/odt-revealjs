@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseOdt } from '../src/lib/odt/parse';
-import { buildPresentation, DEFAULT_PRESENTATION } from '../src/lib/presentation';
+import { buildPresentation, DEFAULT_PRESENTATION, LANGUAGE_PICKER_POST_INIT, LANGUAGE_PICKER_PRE_INIT } from '../src/lib/presentation';
 import { DEFAULT_SETTINGS, renderSections, type ConversionSettings } from '../src/lib/render';
 import { applyTemplate, createTemplate, DEFAULT_OUTPUT, parseTemplate } from '../src/lib/templates';
 import { toDataUri } from '../src/lib/odt/images';
@@ -193,7 +193,8 @@ describe('language attributes', () => {
   it('marks slides with VI styles as vi, others as en and image slides as both', () => {
     const html = render(doc, { langAttributes: true, imageSlides: true, paragraphStyles: { 'Notes VI': 'notes' } });
     expect(langs(html)).toEqual([
-      ['intro', 'en'],
+      // The title slide is shared by both languages.
+      ['intro', 'both'],
       ['introduction', 'en'],
       ['lists-tables', 'vi'],
       ['a-picture', 'en'],
@@ -209,6 +210,89 @@ describe('language attributes', () => {
     expect(html).toContain('<section id="lists-tables" data-lang="en">');
     expect(html).toContain('<section id="maths" data-lang="en">');
     expect(render(doc)).not.toContain('data-lang');
+  });
+});
+
+describe('language picker', () => {
+  const assets = { revealCss: '', themeCss: '', revealJs: '', notesJs: '' };
+  const slides = [
+    '<section id="t" data-lang="both"><h1>Title</h1></section>',
+    '<section data-lang="en"><section id="a" data-lang="en">A</section><section id="a-img" data-lang="both">img</section></section>',
+    '<section data-lang="vi"><section id="b" data-lang="vi">B</section><section id="b-img" data-lang="both">img</section></section>',
+    '<section id="c">no tag</section>',
+  ].join('\n');
+
+  it('adds the picker and wraps Reveal.initialize with the language script only when enabled', () => {
+    const html = buildPresentation(slides, { ...DEFAULT_PRESENTATION, languagePicker: true }, assets);
+    expect(html).toContain('<select id="lang-toggle" aria-label="Language">');
+    expect(html).toContain('<option value="vi">Tiếng Việt</option>');
+    const pre = html.indexOf('applyLanguage(startLang);');
+    const init = html.indexOf('Reveal.initialize(');
+    const listener = html.indexOf("toggle.addEventListener('change'");
+    expect(pre).toBeGreaterThan(0);
+    expect(init).toBeGreaterThan(pre);
+    expect(listener).toBeGreaterThan(init);
+    expect(html).toContain('#lang-toggle {');
+    const off = buildPresentation(slides, DEFAULT_PRESENTATION, assets);
+    expect(off).not.toContain('lang-toggle');
+    expect(off).not.toContain('applyLanguage');
+  });
+
+  it('keeps only the chosen language plus "both", including inside vertical stacks', () => {
+    document.body.innerHTML = `<div class="reveal"><div class="slides">${slides}</div></div><select id="lang-toggle"><option value="en"></option><option value="vi"></option></select>`;
+    // Run the shipped script, then expose applyLanguage to switch languages.
+    const applyLanguage = new Function(`${LANGUAGE_PICKER_PRE_INIT}\nreturn applyLanguage;`)() as (lang: string) => void;
+    const ids = () => [...document.querySelectorAll('.slides section[id]')].map((s) => s.id);
+    // Untagged slides inherit "both" from the root, so they show in every language.
+    expect(ids()).toEqual(['t', 'a', 'a-img', 'c']);
+    expect(document.documentElement.lang).toBe('en');
+    applyLanguage('vi');
+    expect(ids()).toEqual(['t', 'b', 'b-img', 'c']);
+    expect(document.documentElement.lang).toBe('vi');
+    applyLanguage('en');
+    expect(ids()).toEqual(['t', 'a', 'a-img', 'c']);
+  });
+
+  it('switches to the matching slide and remembers the language in the URL', () => {
+    const deck = [
+      '<section id="t" data-lang="both">Title</section>',
+      '<section id="e1" data-lang="en">E1</section>',
+      '<section id="v1" data-lang="vi">V1</section>',
+      // Like the app's vertical stacks: the wrapper has no data-lang, its slides do.
+      '<section><section id="e2" data-lang="en">E2</section><section id="e2-img" data-lang="both">img</section></section>',
+      '<section id="v2" data-lang="vi">V2</section>',
+    ].join('');
+    document.body.innerHTML = `<div class="reveal"><div class="slides">${deck}</div></div><select id="lang-toggle"><option value="en"></option><option value="vi"></option></select>`;
+    history.replaceState(null, '', '/deck.html#/e2');
+    // Minimal stand-in for reveal.js: a slide's "indices" are the element itself.
+    let current: Element = document.getElementById('e2')!;
+    const Reveal = {
+      getCurrentSlide: () => current,
+      getIndices: (el: Element) => ({ h: el, v: 0 }),
+      slide: (h: Element | number) => { current = typeof h === 'number' ? document.querySelector('.slides section')! : h; },
+      sync: () => {},
+      getConfig: () => ({ hash: true }),
+    };
+    new Function('Reveal', `${LANGUAGE_PICKER_PRE_INIT}\n${LANGUAGE_PICKER_POST_INIT}`)(Reveal);
+    const toggle = document.getElementById('lang-toggle') as HTMLSelectElement;
+    const pick = (lang: string) => { toggle.value = lang; toggle.dispatchEvent(new Event('change')); };
+
+    pick('vi'); // e2 is the 2nd English slide → the 2nd Vietnamese slide, not the same slide number
+    expect(current.id).toBe('v2');
+    expect(location.search).toBe('?lang=vi');
+    expect(location.hash).toBe('#/v2');
+
+    pick('en');
+    expect(current.id).toBe('e2');
+    expect(location.hash).toBe('#/e2');
+
+    current = document.getElementById('e2-img')!; // shared slides stay where they are
+    pick('vi');
+    expect(current.id).toBe('e2-img');
+    expect(location.hash).toBe('#/e2-img');
+    pick('en');
+    expect(current.id).toBe('e2-img');
+    expect(location.search).toBe('?lang=en');
   });
 });
 
