@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseOdt } from '../src/lib/odt/parse';
 import { buildPresentation, DEFAULT_PRESENTATION, LANGUAGE_PICKER_POST_INIT, LANGUAGE_PICKER_PRE_INIT } from '../src/lib/presentation';
-import { DEFAULT_SETTINGS, renderSections, type ConversionSettings } from '../src/lib/render';
+import { DEFAULT_SETTINGS, languagePairWarnings, renderSections, type ConversionSettings } from '../src/lib/render';
 import { applyTemplate, createTemplate, DEFAULT_OUTPUT, parseTemplate } from '../src/lib/templates';
 import { toDataUri } from '../src/lib/odt/images';
 
@@ -278,6 +278,70 @@ describe('translated heading pairs', () => {
 
   it('only sorts content when language marking is on', () => {
     expect(slide(render(doc), 'gioi-thieu')).toContain('English one.');
+  });
+});
+
+describe('bilingual lists and mis-levelled translations', () => {
+  // Modelled on a real bilingual teaching document.
+  const hl = (style: string, level: number, text: string) => `<text:h text:style-name="${style}" text:outline-level="${level}">${text}</text:h>`;
+  const p = (style: string, text: string) => `<text:p text:style-name="${style}">${text}</text:p>`;
+  const li = (...content: string[]) => `<text:list-item>${content.join('')}</text:list-item>`;
+  const ul = (...items: string[]) => `<text:list text:style-name="L2">${items.join('')}</text:list>`;
+  const styles =
+    '<style:style style:name="Heading_20_1_20_VI" style:display-name="Heading 1 VI" style:family="paragraph" style:parent-style-name="Heading"/>' +
+    '<style:style style:name="Text_20_body_20_VI" style:display-name="Text body VI" style:family="paragraph"/>';
+  const body =
+    hl('Heading_20_1', 4, 'Ministers who take the word seriously.') +
+    // The translation was styled one level too high, and all the content sits under it.
+    hl('Heading_20_1_20_VI', 3, 'Người hầu việc nghiêm túc.') +
+    p('Text_20_body', 'Deut 18:18.') + p('Text_20_body_20_VI', 'Phục Truyền 18:18.') +
+    // Items alternate English and Vietnamese, with a nested list and a two-language item.
+    ul(li(p('Text_20_body', 'We take it seriously.')), li(p('Text_20_body_20_VI', 'Chúng ta nghiêm túc.'))) +
+    ul(li(ul(li(p('Text_20_body', 'Under judgment.')), li(p('Text_20_body_20_VI', 'Chịu phán xét.'))))) +
+    ul(li(p('Text_20_body', 'Every part.'), p('Text_20_body_20_VI', 'Mọi phần.'))) +
+    hl('Heading_20_1', 4, 'Servants of the word.') + hl('Heading_20_1_20_VI', 4, 'Đầy tớ của Lời Chúa.') +
+    p('Text_20_body', 'Servants.') + p('Text_20_body_20_VI', 'Đầy tớ.');
+  const base = new TextDecoder().decode(fixture('sample.fodt'));
+  const src = base
+    .replace('<style:style style:name="Emphasis"', styles + '<style:style style:name="Emphasis"')
+    .replace(/(<office:text>)[\s\S]*(<\/office:text>)/, `$1${body}$2`);
+  const doc = parseOdt(new TextEncoder().encode(src));
+  const slide = (html: string, id: string) => html.slice(html.indexOf(`<section id="${id}"`), html.indexOf('</section>', html.indexOf(`<section id="${id}"`)));
+
+  it('pairs a translation styled at a different level and shows it at its partner’s level', () => {
+    const html = render(doc, { langAttributes: true });
+    const en = slide(html, 'ministers-who-take-the-word-seriously');
+    const vi = slide(html, 'nguoi-hau-viec-nghiem-tuc');
+    expect(en).toMatch(/data-lang="en">\s*<h4>[\s\S]*Deut 18:18\./);
+    expect(vi).toMatch(/data-lang="vi">\s*<h4>Người hầu việc nghiêm túc\.<\/h4>[\s\S]*Phục Truyền 18:18\./);
+    expect(en).not.toContain('Phục Truyền');
+    expect(vi).not.toContain('Deut');
+  });
+
+  it('sorts list items by language, keeping nesting and splitting two-language items', () => {
+    const html = render(doc, { langAttributes: true });
+    const en = slide(html, 'ministers-who-take-the-word-seriously');
+    const vi = slide(html, 'nguoi-hau-viec-nghiem-tuc');
+    expect(en).toMatch(/<ul>\s*<li>We take it seriously\.<\/li>\s*<\/ul>/);
+    expect(en).toMatch(/<ul>\s*<li>\s*<ul>\s*<li>Under judgment\.<\/li>\s*<\/ul>\s*<\/li>\s*<\/ul>/);
+    expect(en).toMatch(/<li>Every part\.<\/li>/);
+    expect(vi).toMatch(/<ul>\s*<li>Chúng ta nghiêm túc\.<\/li>\s*<\/ul>/);
+    expect(vi).toMatch(/<li>\s*<ul>\s*<li>Chịu phán xét\.<\/li>/);
+    expect(vi).toMatch(/<li>Mọi phần\.<\/li>/);
+    expect(en).not.toMatch(/Chúng ta|Chịu|Mọi/);
+    expect(vi).not.toMatch(/We take|Under|Every/);
+  });
+
+  it('flags the mis-levelled pair but not correctly styled ones', () => {
+    const notes = languagePairWarnings(doc);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('“Người hầu việc nghiêm túc.” (Heading 1 VI) looks like the translation of “Ministers who take the word seriously.”');
+    expect(notes[0]).toContain('level 3, not 4');
+  });
+
+  it('does not pair across levels when the first heading has its own content', () => {
+    const own = src.replace(hl('Heading_20_1_20_VI', 3, 'Người hầu việc nghiêm túc.'), p('Text_20_body', 'Own.') + hl('Heading_20_1_20_VI', 3, 'Người hầu việc nghiêm túc.'));
+    expect(languagePairWarnings(parseOdt(new TextEncoder().encode(own)))).toEqual([]);
   });
 });
 

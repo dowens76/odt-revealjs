@@ -7,6 +7,7 @@ import {
   esc,
   FRAGMENT_EFFECTS,
   includedSections,
+  languagePairWarnings,
   renderSections,
   type ConversionSettings,
   type ParagraphAction,
@@ -189,7 +190,7 @@ function renderChrome() {
   $('save-btn').textContent = state.output.mode === 'presentation' ? 'Save presentation…' : 'Save HTML…';
   $('copy-btn').textContent = 'Copy <section> HTML';
 
-  const warnings = doc?.warnings ?? [];
+  const warnings = doc ? [...doc.warnings, ...(state.settings.langAttributes ? languagePairWarnings(doc) : [])] : [];
   const wb = $('warnings-btn');
   wb.hidden = warnings.length === 0;
   wb.textContent = `⚠ ${warnings.length} note${warnings.length === 1 ? '' : 's'}`;
@@ -530,6 +531,7 @@ panel.addEventListener('change', (e) => {
     if (d.pres === 'languagePicker' && t.checked) state.settings.langAttributes = true;
     if (d.pres === 'customCss') return; // handled on input, no re-render (keeps the caret)
   } else return;
+  renderChrome(); // e.g. language marking adds or removes notes about heading pairs
   renderPanel();
   updateCounts();
   schedulePreview();

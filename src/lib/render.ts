@@ -112,31 +112,78 @@ function headingLang(s: Section): Lang {
 }
 
 /**
+ * The parts of a block in one language. Paragraphs are kept or dropped whole; lists are sorted
+ * item by item (bilingual lists often alternate an English item with its translation, or put both
+ * in one item), keeping their nesting; table rows are kept or dropped by their first text.
+ * Content without text (images, formulas) belongs to both languages.
+ */
+function inLanguage(b: Block, lang: Lang): Block[] {
+  switch (b.kind) {
+    case 'para':
+      return (blockLang(b) ?? lang) === lang ? [b] : [];
+    case 'list': {
+      const items = b.items
+        .map((item) => ({ blocks: item.blocks.flatMap((x) => inLanguage(x, lang)) }))
+        .filter((item) => item.blocks.length > 0);
+      return items.length ? [{ ...b, items }] : [];
+    }
+    case 'table': {
+      const rows = b.rows.filter((row) => (firstLang(row.flatMap((cell) => cell.blocks)) ?? lang) === lang);
+      return rows.length ? [{ ...b, rows }] : [];
+    }
+  }
+}
+
+interface LanguagePairs {
+  sections: Section[];
+  /** Language of each section that is one half of a translated heading pair. */
+  langs: Map<Section, Lang>;
+  /** Pairs whose headings use different outline levels (usually a mis-styled translation). */
+  mismatched: [Section, Section][];
+}
+
+/**
  * Bilingual documents keep a heading and its translation next to each other, so all of the
  * content (both languages) ends up under the second heading. For each such pair (adjacent
- * headings at the same level, one English and one "VI"), pool their content up to the next
- * heading and give each heading the blocks in its own language. Blocks without text, such as
- * images, are copied to both so each language keeps them. Returns the language of each paired section.
+ * headings, one English and one "VI"), pool their content up to the next heading and give each
+ * heading the content in its own language. Images and other content without text are copied to
+ * both so each language keeps them.
+ *
+ * Headings normally pair at the same level. A pair at different levels (a translation styled
+ * Heading 3-VI next to a Heading 4, say) is still accepted when the first heading has no content of
+ * its own, and the second is shown at the first one's level so both languages look the same.
  */
-function splitLanguagePairs(sections: Section[]): { sections: Section[]; langs: Map<Section, Lang> } {
+function splitLanguagePairs(sections: Section[]): LanguagePairs {
   const out = [...sections];
   const langs = new Map<Section, Lang>();
+  const mismatched: [Section, Section][] = [];
   for (let i = 0; i + 1 < out.length; i++) {
     const a = out[i];
     const b = out[i + 1];
-    if (a.level === 0 || a.level !== b.level) continue;
+    if (a.level === 0 || b.level === 0) continue;
+    if (a.level !== b.level && a.blocks.length > 0) continue;
     const la = headingLang(a);
     const lb = headingLang(b);
     if (la === lb) continue;
+    if (a.level !== b.level) mismatched.push([a, b]);
     const pooled = [...a.blocks, ...b.blocks];
-    const own = (lang: Lang) => pooled.filter((x) => (blockLang(x) ?? lang) === lang);
+    const own = (lang: Lang) => pooled.flatMap((x) => inLanguage(x, lang));
     out[i] = { ...a, blocks: own(la) };
-    out[i + 1] = { ...b, blocks: own(lb) };
+    out[i + 1] = { ...b, level: a.level, blocks: own(lb) };
     langs.set(out[i], la);
     langs.set(out[i + 1], lb);
     i++; // the pair is complete; the next heading can start a new one
   }
-  return { sections: out, langs };
+  return { sections: out, langs, mismatched };
+}
+
+/** Notes for the user about translated heading pairs whose levels don't match. */
+export function languagePairWarnings(doc: OdtDocument): string[] {
+  return splitLanguagePairs(doc.sections).mismatched.map(
+    ([a, b]) =>
+      `“${b.title}” (${b.headingStyle}) looks like the translation of “${a.title}” (${a.headingStyle}) but is at level ${b.level}, not ${a.level}. ` +
+      `It is shown at level ${a.level}; give it the matching style in the document to fix this.`,
+  );
 }
 
 /** Render the selected sections of a document as reveal.js `<section>` markup. */
