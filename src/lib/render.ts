@@ -1,5 +1,5 @@
 import type { Block, ImageAsset, Inline, OdtDocument, Section, TextFormat } from './model';
-import { slugify } from './odt/parse';
+import { plainText, slugify } from './odt/parse';
 
 export type ParagraphAction = 'include' | 'exclude' | 'notes';
 export type TextAction = 'include' | 'plain' | 'exclude';
@@ -41,7 +41,8 @@ export interface ConversionSettings {
   /**
    * Add data-lang to each slide: "vi" when its content uses a style whose name contains "VI",
    * "en" otherwise, and "both" on image slides and on the front matter (content before the
-   * first heading, usually the title slide).
+   * first heading, usually the title slide). Adjacent English/"VI" headings are treated as a
+   * translation pair and their content is sorted to the heading of the matching language.
    */
   langAttributes: boolean;
 }
@@ -75,10 +76,78 @@ export function includedSections(doc: OdtDocument, settings: ConversionSettings)
   return doc.sections.filter((s) => settings.sections[s.id] !== false);
 }
 
+type Lang = 'vi' | 'en';
+
+function hasViSpan(inlines: Inline[]): boolean {
+  return inlines.some(
+    (i) =>
+      (i.kind === 'span' && ((i.style && VI_STYLE.test(i.style) && plainText(i.children).trim()) || hasViSpan(i.children))) ||
+      (i.kind === 'link' && hasViSpan(i.children)),
+  );
+}
+
+/** Language of a block from its styles, or null when it has no text (an image, a formula, an empty paragraph). */
+function blockLang(b: Block): Lang | null {
+  switch (b.kind) {
+    case 'para':
+      if (VI_STYLE.test(b.style) || hasViSpan(b.inlines)) return 'vi';
+      return plainText(b.inlines).trim() ? 'en' : null;
+    case 'list':
+      return firstLang(b.items.flatMap((item) => item.blocks));
+    case 'table':
+      return firstLang(b.rows.flatMap((row) => row.flatMap((cell) => cell.blocks)));
+  }
+}
+
+function firstLang(blocks: Block[]): Lang | null {
+  for (const b of blocks) {
+    const l = blockLang(b);
+    if (l) return l;
+  }
+  return null;
+}
+
+function headingLang(s: Section): Lang {
+  return (s.headingStyle && VI_STYLE.test(s.headingStyle)) || hasViSpan(s.heading) ? 'vi' : 'en';
+}
+
+/**
+ * Bilingual documents keep a heading and its translation next to each other, so all of the
+ * content (both languages) ends up under the second heading. For each such pair (adjacent
+ * headings at the same level, one English and one "VI"), pool their content up to the next
+ * heading and give each heading the blocks in its own language. Blocks without text, such as
+ * images, are copied to both so each language keeps them. Returns the language of each paired section.
+ */
+function splitLanguagePairs(sections: Section[]): { sections: Section[]; langs: Map<Section, Lang> } {
+  const out = [...sections];
+  const langs = new Map<Section, Lang>();
+  for (let i = 0; i + 1 < out.length; i++) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (a.level === 0 || a.level !== b.level) continue;
+    const la = headingLang(a);
+    const lb = headingLang(b);
+    if (la === lb) continue;
+    const pooled = [...a.blocks, ...b.blocks];
+    const own = (lang: Lang) => pooled.filter((x) => (blockLang(x) ?? lang) === lang);
+    out[i] = { ...a, blocks: own(la) };
+    out[i + 1] = { ...b, blocks: own(lb) };
+    langs.set(out[i], la);
+    langs.set(out[i + 1], lb);
+    i++; // the pair is complete; the next heading can start a new one
+  }
+  return { sections: out, langs };
+}
+
 /** Render the selected sections of a document as reveal.js `<section>` markup. */
 export function renderSections(doc: OdtDocument, settings: ConversionSettings, options: RenderOptions): string {
-  const r = new Renderer(doc, settings, options);
-  const sections = includedSections(doc, settings);
+  // Pair up translated headings across the whole document first, so excluding one heading of a
+  // pair doesn't also drop the other language's content that was filed under it.
+  const { sections: all, langs } = settings.langAttributes
+    ? splitLanguagePairs(doc.sections)
+    : { sections: doc.sections, langs: new Map<Section, Lang>() };
+  const r = new Renderer(doc, settings, options, langs);
+  const sections = all.filter((s) => settings.sections[s.id] !== false);
   if (settings.nesting === 'flat') return sections.flatMap((s) => r.section(s)).join('\n\n');
 
   const headingLevels = sections.filter((s) => s.level > 0).map((s) => s.level);
@@ -111,6 +180,8 @@ class Renderer {
     private doc: OdtDocument,
     private settings: ConversionSettings,
     private options: RenderOptions,
+    /** Language of sections that are one half of a translated heading pair. */
+    private pairLangs: Map<Section, Lang> = new Map(),
   ) {}
 
   /** Render a document section: its slide, followed by one slide per image when images get their own slides. */
@@ -133,11 +204,14 @@ class Renderer {
       parts.push(`<aside class="notes">\n${this.notes.map((n) => `  ${n}`).join('\n')}\n</aside>`);
     }
     const body = parts.map((p) => indentLines(p, '  ')).join('\n');
-    // The front matter (title slide) is shared by both languages.
-    const lang = s.level === 0 ? 'both' : this.vi ? 'vi' : 'en';
+    // The front matter (title slide) is shared by both languages. A paired heading's slide takes
+    // the heading's language; each half of the pair has its own copy of the images, so its image
+    // slides belong to that language too rather than to both.
+    const paired = this.pairLangs.get(s);
+    const lang = s.level === 0 ? 'both' : (paired ?? (this.vi ? 'vi' : 'en'));
     const slides = [`<section id="${esc(s.id)}"${this.lang(lang)}>\n${body}\n</section>`];
     this.pendingImages.forEach((figure, n) => {
-      slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide"${this.lang('both')}>\n${indentLines(figure, '  ')}\n</section>`);
+      slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide"${this.lang(paired ?? 'both')}>\n${indentLines(figure, '  ')}\n</section>`);
     });
     return slides;
   }

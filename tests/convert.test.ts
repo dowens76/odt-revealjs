@@ -213,6 +213,74 @@ describe('language attributes', () => {
   });
 });
 
+describe('translated heading pairs', () => {
+  const h = (style: string, text: string) => `<text:h text:style-name="${style}" text:outline-level="1">${text}</text:h>`;
+  const p = (style: string, text: string) => `<text:p text:style-name="${style}">${text}</text:p>`;
+  const base = new TextDecoder().decode(fixture('sample.fodt'));
+  const image = base.slice(base.indexOf('<text:p text:style-name="Text_20_body"><draw:frame'), base.indexOf('</text:p>', base.indexOf('<draw:frame draw:style-name="fr1"')) + '</text:p>'.length);
+  const styles =
+    '<style:style style:name="Heading_20_1_20_VI" style:display-name="Heading 1 VI" style:family="paragraph" style:parent-style-name="Heading"/>' +
+    '<style:style style:name="Body_20_Text_20_VI" style:display-name="Body Text VI" style:family="paragraph"/>' +
+    '<style:style style:name="Notes_20_VI" style:display-name="Notes VI" style:family="paragraph"/>' +
+    '<style:style style:name="Notes_20_EN" style:display-name="Notes EN" style:family="paragraph"/>';
+  const body =
+    // Heading pair, English first: all content sits under the Vietnamese heading.
+    h('Heading_20_1', 'Introduction') + h('Heading_20_1_20_VI', 'Giới thiệu') +
+    p('Text_20_body', 'English one.') + p('Body_20_Text_20_VI', 'Tiếng Việt một.') +
+    image +
+    `<text:list text:style-name="L2"><text:list-item>${p('Body_20_Text_20_VI', 'Mục')}</text:list-item></text:list>` +
+    p('Text_20_body', 'English two.') + p('Notes_20_EN', 'Say hello.') + p('Notes_20_VI', 'Xin chào.') +
+    // Pair in the other order.
+    h('Heading_20_1_20_VI', 'Kết luận') + h('Heading_20_1', 'Conclusion') +
+    p('Body_20_Text_20_VI', 'Hết.') + p('Text_20_body', 'The end.') +
+    // An ordinary heading, not part of a pair.
+    h('Heading_20_1', 'Appendix') + p('Text_20_body', 'Extra.');
+  const src = base
+    .replace('<style:style style:name="Emphasis"', styles + '<style:style style:name="Emphasis"')
+    .replace(/(<office:text>)[\s\S]*(<\/office:text>)/, `$1${body}$2`);
+  const doc = parseOdt(new TextEncoder().encode(src));
+  const settings = { langAttributes: true, paragraphStyles: { 'Notes VI': 'notes', 'Notes EN': 'notes' } } as const;
+  const slide = (html: string, id: string) => html.slice(html.indexOf(`<section id="${id}"`), html.indexOf('</section>', html.indexOf(`<section id="${id}"`)));
+
+  it('gives each heading of a pair the content in its own language', () => {
+    const html = render(doc, settings);
+    const en = slide(html, 'introduction');
+    const vi = slide(html, 'gioi-thieu');
+    expect(en).toContain('data-lang="en"');
+    expect(en).toMatch(/English one\.[\s\S]*<img[\s\S]*English two\./);
+    expect(en).toContain('<p>Say hello.</p>');
+    expect(en).not.toMatch(/Tiếng Việt|Mục|Xin chào/);
+    expect(vi).toContain('data-lang="vi"');
+    expect(vi).toMatch(/Tiếng Việt một\.[\s\S]*<img[\s\S]*<li>Mục<\/li>/);
+    expect(vi).toContain('<p>Xin chào.</p>');
+    expect(vi).not.toMatch(/English|Say hello/);
+  });
+
+  it('works with the Vietnamese heading first and leaves unpaired headings alone', () => {
+    const html = render(doc, settings);
+    expect(slide(html, 'ket-luan')).toMatch(/data-lang="vi">[\s\S]*Hết\./);
+    expect(slide(html, 'ket-luan')).not.toContain('The end.');
+    expect(slide(html, 'conclusion')).toMatch(/data-lang="en">[\s\S]*The end\./);
+    expect(slide(html, 'appendix')).toMatch(/data-lang="en">[\s\S]*Extra\./);
+  });
+
+  it('keeps English content when the Vietnamese heading is excluded', () => {
+    const html = render(doc, { ...settings, sections: { 'gioi-thieu': false } });
+    expect(html).not.toContain('id="gioi-thieu"');
+    expect(slide(html, 'introduction')).toContain('English two.');
+  });
+
+  it('gives image slides the language of their half of the pair', () => {
+    const html = render(doc, { ...settings, imageSlides: true });
+    expect(html).toContain('<section id="introduction-image-1" class="image-slide" data-lang="en">');
+    expect(html).toContain('<section id="gioi-thieu-image-1" class="image-slide" data-lang="vi">');
+  });
+
+  it('only sorts content when language marking is on', () => {
+    expect(slide(render(doc), 'gioi-thieu')).toContain('English one.');
+  });
+});
+
 describe('language picker', () => {
   const assets = { revealCss: '', themeCss: '', revealJs: '', notesJs: '' };
   const slides = [
