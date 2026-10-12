@@ -173,6 +173,45 @@ describe('captions', () => {
   });
 });
 
+describe('language attributes', () => {
+  const src = new TextDecoder().decode(fixture('sample.fodt'))
+    .replace(
+      '<style:style style:name="Emphasis"',
+      '<style:style style:name="Text_20_body_20_VI" style:display-name="Text body VI" style:family="paragraph"/>' +
+        '<style:style style:name="Notes_20_VI" style:display-name="Notes VI" style:family="paragraph"/>' +
+        '<style:style style:name="Emphasis_20_VI" style:display-name="Emphasis VI" style:family="text"/>' +
+        '<style:style style:name="Emphasis"',
+    )
+    .replace('<text:p text:style-name="Text_20_body">Bullet one</text:p>', '<text:p text:style-name="Text_20_body_20_VI">Bullet one</text:p>')
+    .replace('<text:h text:style-name="Heading_20_1" text:outline-level="1">Appendix</text:h>',
+      '<text:p text:style-name="Text_20_body">Tổng <text:span text:style-name="Emphasis_20_VI">kết</text:span></text:p>' +
+        '<text:h text:style-name="Heading_20_1" text:outline-level="1">Appendix</text:h>' +
+        '<text:p text:style-name="Notes_20_VI">Ghi chú</text:p>');
+  const doc = parseOdt(new TextEncoder().encode(src));
+  const langs = (html: string) => [...html.matchAll(/<section id="([^"]+)"[^>]*?(?: data-lang="(\w+)")?>/g)].map((m) => [m[1], m[2]]);
+
+  it('marks slides with VI styles as vi, others as en and image slides as both', () => {
+    const html = render(doc, { langAttributes: true, imageSlides: true, paragraphStyles: { 'Notes VI': 'notes' } });
+    expect(langs(html)).toEqual([
+      ['intro', 'en'],
+      ['introduction', 'en'],
+      ['lists-tables', 'vi'],
+      ['a-picture', 'en'],
+      ['a-picture-image-1', 'both'],
+      ['maths', 'vi'],
+      // A VI style in the speaker notes doesn't make the slide Vietnamese.
+      ['appendix', 'en'],
+    ]);
+  });
+
+  it('ignores excluded VI content and is off by default', () => {
+    const html = render(doc, { langAttributes: true, paragraphStyles: { 'Text body VI': 'exclude' }, textStyles: { 'Emphasis VI': 'exclude' } });
+    expect(html).toContain('<section id="lists-tables" data-lang="en">');
+    expect(html).toContain('<section id="maths" data-lang="en">');
+    expect(render(doc)).not.toContain('data-lang');
+  });
+});
+
 describe('security', () => {
   it('strips scripts and event handlers from embedded MathML', () => {
     const src = new TextDecoder().decode(fixture('sample.fodt')).replace(

@@ -366,6 +366,8 @@ function stylesPanel(): string {
         <span>Put each image on its own slide<small>Right after the slide it came from, sized to fill the slide, with its caption.</small></span></label>
       <label class="check"><input type="checkbox" data-setting="styleClasses" ${s.styleClasses ? 'checked' : ''}>
         <span>Add style class names<small>e.g. <code>class="odt-quotations"</code>, so ODT styles can be targeted with custom CSS.</small></span></label>
+      <label class="check"><input type="checkbox" data-setting="langAttributes" ${s.langAttributes ? 'checked' : ''}>
+        <span>Mark slide language<small>Adds <code>data-lang="vi"</code> to slides using a style with “VI” in its name, <code>data-lang="en"</code> to the others and <code>data-lang="both"</code> to image slides.</small></span></label>
       <div class="row"><label>List items</label>
         <select data-setting="listFragments">
           ${opt('none', 'Show all at once', s.listFragments)}${opt('top', 'One at a time (top level)', s.listFragments)}${opt('all', 'One at a time (incl. nested)', s.listFragments)}

@@ -20,6 +20,7 @@ A small desktop app for macOS and Windows that turns an OpenDocument text file (
   - *Quotations* → `<blockquote>`;
   - *Title* / *Subtitle* → a title slide.
 - **Optional bullet-by-bullet reveal.** List items can be turned into reveal.js fragments, either top-level items only or nested items too, with a choice of effect (fade in, slide up, highlight current, …).
+- **Optional language marking.** Each slide gets `data-lang="vi"` when its visible content uses a paragraph, heading or character style with **VI** in its name, `data-lang="en"` otherwise, and image slides get `data-lang="both"`. Use it to style or filter slides by language with custom CSS or JavaScript.
 - **Optional vertical slides.** Lower-level headings can be nested under their top-level heading as reveal.js vertical stacks.
 
 ## Using it

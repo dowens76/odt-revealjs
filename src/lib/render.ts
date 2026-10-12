@@ -38,6 +38,11 @@ export interface ConversionSettings {
   listFragments: ListFragments;
   /** reveal.js fragment effect class, e.g. "fade-up"; '' for the default. */
   fragmentEffect: string;
+  /**
+   * Add data-lang to each slide: "vi" when its content uses a style whose name contains "VI",
+   * "en" otherwise, and "both" on image slides.
+   */
+  langAttributes: boolean;
 }
 
 export const DEFAULT_SETTINGS: ConversionSettings = {
@@ -52,6 +57,7 @@ export const DEFAULT_SETTINGS: ConversionSettings = {
   imageSlides: false,
   listFragments: 'none',
   fragmentEffect: '',
+  langAttributes: false,
 };
 
 export interface RenderOptions {
@@ -61,6 +67,8 @@ export interface RenderOptions {
 
 const PRE_STYLES = /^(preformatted text|source code|code|code block)$/i;
 const QUOTE_STYLES = /^(quotations?|quote|block ?quote|intense quote)$/i;
+/** Styles whose name contains "VI" (case-sensitive) mark Vietnamese content. */
+const VI_STYLE = /VI/;
 
 export function includedSections(doc: OdtDocument, settings: ConversionSettings): Section[] {
   return doc.sections.filter((s) => settings.sections[s.id] !== false);
@@ -95,6 +103,8 @@ class Renderer {
   private footnotes: string[] = [];
   private listDepth = 0;
   private pendingImages: string[] = [];
+  /** Whether the current slide's visible content uses a Vietnamese ("VI") style. */
+  private vi = false;
 
   constructor(
     private doc: OdtDocument,
@@ -107,8 +117,10 @@ class Renderer {
     this.notes = [];
     this.footnotes = [];
     this.pendingImages = [];
+    this.vi = false;
     const parts: string[] = [];
     if (s.level > 0) {
+      this.markLang(s.headingStyle);
       const tag = `h${Math.min(s.level, 6)}`;
       parts.push(`<${tag}${this.cls(s.headingStyle)}>${this.inlines(s.heading).trim()}</${tag}>`);
     }
@@ -120,11 +132,19 @@ class Renderer {
       parts.push(`<aside class="notes">\n${this.notes.map((n) => `  ${n}`).join('\n')}\n</aside>`);
     }
     const body = parts.map((p) => indentLines(p, '  ')).join('\n');
-    const slides = [`<section id="${esc(s.id)}">\n${body}\n</section>`];
+    const slides = [`<section id="${esc(s.id)}"${this.lang(this.vi ? 'vi' : 'en')}>\n${body}\n</section>`];
     this.pendingImages.forEach((figure, n) => {
-      slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide">\n${indentLines(figure, '  ')}\n</section>`);
+      slides.push(`<section id="${esc(s.id)}-image-${n + 1}" class="image-slide"${this.lang('both')}>\n${indentLines(figure, '  ')}\n</section>`);
     });
     return slides;
+  }
+
+  private lang(value: 'vi' | 'en' | 'both'): string {
+    return this.settings.langAttributes ? ` data-lang="${value}"` : '';
+  }
+
+  private markLang(style: string | null): void {
+    if (style && VI_STYLE.test(style)) this.vi = true;
   }
 
   private cls(style: string | null): string {
@@ -141,6 +161,7 @@ class Renderer {
     };
     for (const b of blocks) {
       if (b.kind === 'para' && PRE_STYLES.test(b.style) && this.action(b.style) === 'include') {
+        this.markLang(b.style);
         pre.push(this.inlines(b.inlines).replace(/<br>/g, '\n'));
         continue;
       }
@@ -161,12 +182,19 @@ class Renderer {
       case 'para': {
         const action = this.action(b.style);
         if (action === 'exclude') return '';
+        // Only content shown on the slide decides its language, so speaker notes don't count.
+        const vi = this.vi;
         const inner = this.inlines(b.inlines).trim();
-        if (!inner || /^(<br>|\s|&nbsp;)*$/.test(inner)) return '';
+        if (!inner || /^(<br>|\s|&nbsp;)*$/.test(inner)) {
+          this.vi = vi;
+          return '';
+        }
         if (action === 'notes') {
+          this.vi = vi;
           this.notes.push(`<p>${inner}</p>`);
           return '';
         }
+        this.markLang(b.style);
         if (b.style === 'Title') return `<h1${this.cls(b.style)}>${inner}</h1>`;
         if (b.style === 'Subtitle') return `<p class="subtitle${this.settings.styleClasses ? ' odt-subtitle' : ''}">${inner}</p>`;
         if (QUOTE_STYLES.test(b.style)) return `<blockquote${this.cls(b.style)}>${inner}</blockquote>`;
@@ -228,6 +256,7 @@ class Renderer {
           ...(this.settings.directFormatting ? i.direct : {}),
         };
         const inner = this.inlines(i.children);
+        if (inner) this.markLang(i.style);
         const wrapped = wrapFormat(inner, fmt);
         return action === 'include' && i.style && this.settings.styleClasses && inner
           ? `<span${this.cls(i.style)}>${wrapped}</span>`
@@ -245,8 +274,11 @@ class Renderer {
         if (!asset?.supported) return '';
         const src = this.options.imageSrc(asset);
         if (!src) return '';
+        const vi = this.vi;
         const caption = i.caption ? this.inlines(i.caption).trim() : '';
         if (this.settings.imageSlides) {
+          // The caption moves to the image slide, so it doesn't decide this slide's language.
+          this.vi = vi;
           // On its own slide the image is sized by CSS to fill the slide, not by its size in the document.
           const img = `<img src="${esc(src)}" alt="${esc(i.alt)}">`;
           this.pendingImages.push(caption ? `<figure>\n  ${img}\n  <figcaption>${caption}</figcaption>\n</figure>` : img);
@@ -259,11 +291,13 @@ class Renderer {
         return i.mathml;
       case 'note': {
         if (this.settings.footnotes === 'drop') return '';
+        const vi = this.vi;
         const text = this.blocks(i.blocks)
           .map((p) => p.replace(/^<p[^>]*>|<\/p>$/g, ''))
           .join(' ');
         if (!text) return '';
         if (this.settings.footnotes === 'notes') {
+          this.vi = vi;
           this.notes.push(`<p class="footnote">${text}</p>`);
           return '';
         }
