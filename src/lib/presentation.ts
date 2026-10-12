@@ -41,6 +41,8 @@ export interface PresentationOptions {
   center: boolean;
   /** Let slides with more content than fits scroll vertically instead of overflowing. */
   scrollableSlides: boolean;
+  /** Keep long slides scrollable but don't show the scrollbar. */
+  hideScrollbar: boolean;
   /** reveal.js "scroll view": the whole deck becomes one scrolling page. */
   scrollView: boolean;
   /** "inline" embeds reveal.js so the file works offline; "cdn" keeps the file small. */
@@ -66,6 +68,7 @@ export const DEFAULT_PRESENTATION: PresentationOptions = {
   controls: true,
   center: true,
   scrollableSlides: true,
+  hideScrollbar: false,
   scrollView: false,
   revealSource: 'inline',
   customCss: '',
@@ -249,7 +252,13 @@ function overrideCss(o: PresentationOptions): string {
   }
   if (o.scrollableSlides && !o.scrollView) {
     css.push('.reveal .slides section:not(.stack) { max-height: 100%; overflow-y: auto; scrollbar-width: thin; }');
+    if (o.hideScrollbar) {
+      // Still scrolls with the wheel, trackpad or touch; the bar is just not drawn.
+      css.push('.reveal .slides section:not(.stack) { scrollbar-width: none; }');
+      css.push('.reveal .slides section:not(.stack)::-webkit-scrollbar { display: none; }');
+    }
   }
+
   css.push(
     '.reveal section img { max-width: 100%; max-height: 520px; height: auto; object-fit: contain; }',
     '.reveal section.image-slide { text-align: center; }',

@@ -448,6 +448,8 @@ function outputPanel(): string {
       ${check('controls', 'Navigation arrows')}
       ${check('center', 'Centre slides vertically')}
       ${check('scrollableSlides', 'Scroll long slides', 'Slides with more text than fits get a scrollbar instead of being cut off.')}
+      <label class="check" style="margin-left:22px"><input type="checkbox" data-pres="hideScrollbar" ${p.hideScrollbar ? 'checked' : ''} ${p.scrollableSlides && !p.scrollView ? '' : 'disabled'}>
+        <span>Hide the scrollbar<small>Long slides still scroll with the mouse wheel, trackpad or touch.</small></span></label>
       ${check('scrollView', 'Scroll view', 'Show the whole deck as one scrolling page (good for reading on phones).')}
       ${check('languagePicker', 'Language picker (English / Tiếng Việt)', 'Shows only the slides in the chosen language. Turning this on also turns on “Mark slide language” on the Styles tab. Open the file with <code>?lang=vi</code> to start in Vietnamese.')}
     </div>

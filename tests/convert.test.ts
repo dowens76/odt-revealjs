@@ -128,6 +128,16 @@ describe('presentation', () => {
     expect(html).toContain('<div class="slides">\n<section id="intro">');
   });
 
+  it('can hide the scrollbar on scrollable slides', () => {
+    const hidden = buildPresentation(sections, { ...DEFAULT_PRESENTATION, hideScrollbar: true }, assets);
+    expect(hidden).toContain('overflow-y: auto');
+    expect(hidden).toContain('scrollbar-width: none;');
+    expect(hidden).toContain('::-webkit-scrollbar { display: none; }');
+    expect(buildPresentation(sections, DEFAULT_PRESENTATION, assets)).not.toContain('scrollbar-width: none');
+    // Nothing to hide when slides don't scroll.
+    expect(buildPresentation(sections, { ...DEFAULT_PRESENTATION, hideScrollbar: true, scrollableSlides: false }, assets)).not.toContain('scrollbar-width: none');
+  });
+
   it('links to the CDN when requested', () => {
     const html = buildPresentation(sections, { ...DEFAULT_PRESENTATION, revealSource: 'cdn', theme: 'moon' }, null);
     expect(html).toContain('/dist/theme/moon.css');
