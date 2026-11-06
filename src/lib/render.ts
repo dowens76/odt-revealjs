@@ -1,4 +1,4 @@
-import type { Block, ImageAsset, Inline, OdtDocument, Section, TextFormat } from './model';
+import type { Block, ImageAsset, Inline, ListItem, OdtDocument, Section, TextFormat } from './model';
 import { plainText, slugify } from './odt/parse';
 
 export type ParagraphAction = 'include' | 'exclude' | 'notes';
@@ -277,6 +277,7 @@ class Renderer {
   }
 
   private blocks(blocks: Block[]): string[] {
+    blocks = mergeLists(blocks, (b) => b.kind === 'para' && (this.action(b.style) === 'exclude' || isBlank(b.inlines)));
     const out: string[] = [];
     let pre: string[] = [];
     const flushPre = () => {
@@ -430,6 +431,58 @@ class Renderer {
       }
     }
   }
+}
+
+/** True when inlines would render as nothing visible (no text, images, formulas or notes). */
+function isBlank(inlines: Inline[]): boolean {
+  return inlines.every(
+    (i) =>
+      i.kind === 'break' ||
+      (i.kind === 'text' && !i.text.trim()) ||
+      ((i.kind === 'span' || i.kind === 'link') && isBlank(i.children)),
+  );
+}
+
+/**
+ * Documents often give each list item its own list (one `<ul>` per `<li>`), and put a nested item
+ * in an item of its own that holds nothing but the nested list. Join adjacent lists of the same
+ * kind into one, and move an item that holds only a nested list into the item before it, so the
+ * markup is a single list with properly nested sublists. `skip` marks blocks that render to
+ * nothing (excluded or empty paragraphs); they are dropped so they don't keep lists apart.
+ */
+function mergeLists(blocks: Block[], skip: (b: Block) => boolean): Block[] {
+  const out: Block[] = [];
+  for (const b of blocks) {
+    if (skip(b)) continue;
+    if (b.kind !== 'list') {
+      out.push(b);
+      continue;
+    }
+    const items: ListItem[] = [];
+    for (const item of b.items) {
+      const inner = mergeLists(item.blocks, skip);
+      if (!inner.length) continue;
+      const prev = items[items.length - 1];
+      if (prev && inner.every((x) => x.kind === 'list')) {
+        prev.blocks = mergeLists([...prev.blocks, ...inner], skip);
+      } else {
+        items.push({ blocks: inner });
+      }
+    }
+    if (!items.length) continue;
+    const last = out[out.length - 1];
+    // Ordered lists join only when the second continues the first's numbering.
+    const continues =
+      last?.kind === 'list' &&
+      last.ordered === b.ordered &&
+      (!b.ordered || b.start === null || b.start === (last.start ?? 1) + last.items.length);
+    if (continues) {
+      out[out.length - 1] = mergeLists([{ ...last, items: [...last.items, ...items] }], skip)[0];
+    } else {
+      out.push({ ...b, items });
+    }
+  }
+  return out;
 }
 
 function wrapFormat(html: string, f: TextFormat): string {

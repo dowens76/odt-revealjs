@@ -332,12 +332,14 @@ describe('bilingual lists and mis-levelled translations', () => {
     const html = render(doc, { langAttributes: true });
     const en = slide(html, 'ministers-who-take-the-word-seriously');
     const vi = slide(html, 'nguoi-hau-viec-nghiem-tuc');
-    expect(en).toMatch(/<ul>\s*<li>We take it seriously\.<\/li>\s*<\/ul>/);
-    expect(en).toMatch(/<ul>\s*<li>\s*<ul>\s*<li>Under judgment\.<\/li>\s*<\/ul>\s*<\/li>\s*<\/ul>/);
-    expect(en).toMatch(/<li>Every part\.<\/li>/);
-    expect(vi).toMatch(/<ul>\s*<li>Chúng ta nghiêm túc\.<\/li>\s*<\/ul>/);
-    expect(vi).toMatch(/<li>\s*<ul>\s*<li>Chịu phán xét\.<\/li>/);
-    expect(vi).toMatch(/<li>Mọi phần\.<\/li>/);
+    // The one-item lists are joined into one list, with the nested item under the item before it.
+    expect(en).toMatch(
+      /<ul>\s*<li>\s*<p>We take it seriously\.<\/p>\s*<ul>\s*<li>Under judgment\.<\/li>\s*<\/ul>\s*<\/li>\s*<li>Every part\.<\/li>\s*<\/ul>/,
+    );
+    expect(vi).toMatch(
+      /<ul>\s*<li>\s*<p>Chúng ta nghiêm túc\.<\/p>\s*<ul>\s*<li>Chịu phán xét\.<\/li>\s*<\/ul>\s*<\/li>\s*<li>Mọi phần\.<\/li>\s*<\/ul>/,
+    );
+    expect(en.match(/<ul>/g)).toHaveLength(2);
     expect(en).not.toMatch(/Chúng ta|Chịu|Mọi/);
     expect(vi).not.toMatch(/We take|Under|Every/);
   });
@@ -447,5 +449,30 @@ describe('security', () => {
     const html = render(parseOdt(new TextEncoder().encode(src)));
     expect(html).toContain('<mi>a</mi><mtext></mtext>');
     expect(html).not.toMatch(/onclick|<script|alert/);
+  });
+});
+
+describe('one-item lists', () => {
+  const p = (text: string, style = 'Text_20_body') => `<text:p text:style-name="${style}">${text}</text:p>`;
+  const li = (...content: string[]) => `<text:list-item>${content.join('')}</text:list-item>`;
+  const ul = (...items: string[]) => `<text:list text:style-name="L2">${items.join('')}</text:list>`;
+  const ol = (...items: string[]) => `<text:list text:style-name="L1">${items.join('')}</text:list>`;
+  const restart = (n: number, text: string) => `<text:list text:style-name="L1"><text:list-item text:start-value="${n}">${p(text)}</text:list-item></text:list>`;
+  const body =
+    `<text:h text:style-name="Heading_20_1" text:outline-level="1">Lists</text:h>` +
+    ul(li(p('A'))) + ul(li(ul(li(p('A1'))))) + ul(li(ul(li(p('A2'))))) + ul(li(p('B'))) +
+    p('') + p('Hidden', 'Speaker_20_Notes') + ul(li(p('C'))) +
+    p('Between.') +
+    ol(li(p('One'))) + ol(li(p('Two'))) + restart(3, 'Three') + restart(1, 'Again') + ul(li(p('Bullet')));
+  const base = new TextDecoder().decode(fixture('sample.fodt'));
+  const doc = parseOdt(new TextEncoder().encode(base.replace(/(<office:text>)[\s\S]*(<\/office:text>)/, `$1${body}$2`)));
+
+  it('joins adjacent lists and nests items that hold only a sublist', () => {
+    const html = render(doc, { paragraphStyles: { 'Speaker Notes': 'exclude' } });
+    expect(html).toMatch(
+      /<ul>\s*<li>\s*<p>A<\/p>\s*<ul>\s*<li>A1<\/li>\s*<li>A2<\/li>\s*<\/ul>\s*<\/li>\s*<li>B<\/li>\s*<li>C<\/li>\s*<\/ul>\s*<p>Between\.<\/p>/,
+    );
+    // Numbering that continues joins; a restart or a different kind of list starts a new list.
+    expect(html).toMatch(/<ol>\s*<li>One<\/li>\s*<li>Two<\/li>\s*<li>Three<\/li>\s*<\/ol>\s*<ol>\s*<li>Again<\/li>\s*<\/ol>\s*<ul>\s*<li>Bullet<\/li>\s*<\/ul>/);
   });
 });
